@@ -1,0 +1,14 @@
+paths:
+  evaluation_report: "artifacts/metrics.json"
+  quality_gate_report: "artifacts/quality_gate_report.json"
+
+quality_gate:
+  metric: "R2"
+  minimum_value: 0.20
+
+mlflow:
+  tracking_uri: "sqlite:///mlflow.db"
+
+registry:
+  model_name: "Earthquake_Magnitude_Production_Model"
+  decision_metric: "r2"

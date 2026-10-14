@@ -1,0 +1,45 @@
+name: Lab 9 - Earthquake Failure and Recovery Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "pipelines/09_inference.py"
+      - "pipelines/10_failure_injection.py"
+      - ".github/workflows/lab9_failure_tests.yml"
+
+jobs:
+  earthquake-failure-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install required dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pandas numpy scikit-learn pyyaml joblib
+
+      - name: Validate earthquake dataset
+        run: |
+          python -c "import pandas as pd; d=pd.read_csv('data/raw/Earthquake.csv.csv'); required={'Date','Time','Latitude','Longitude','Magnitude'}; assert required.issubset(d.columns), f'Missing columns: {required-set(d.columns)}'; print('Dataset validation passed')"
+
+      - name: Check Lab 9 script syntax
+        run: |
+          python -m py_compile pipelines/09_inference.py pipelines/10_failure_injection.py
+          echo "Lab 9 syntax checks passed"
+
+      - name: Upload Lab 9 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earthquake-lab9-evidence-${{ github.run_number }}
+          path: data/raw/Earthquake.csv.csv
+          if-no-files-found: ignore
