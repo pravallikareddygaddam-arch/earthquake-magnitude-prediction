@@ -6,6 +6,8 @@ on:
     paths:
       - "config.yaml"
       - "pipelines/**"
+      - "src/**"
+      - "experiments/lab08_ci_validation.py"
       - "requirements.txt"
       - "data/raw/Earthquake.csv.csv"
       - ".github/workflows/lab8_ci.yml"
@@ -16,35 +18,23 @@ on:
 jobs:
   earthquake-mlops-ci:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Install required dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pandas numpy scikit-learn pyyaml joblib
-
-      - name: Validate earthquake dataset
-        run: |
-          python -c "import pandas as pd; d=pd.read_csv('data/raw/Earthquake.csv.csv'); required={'Date','Time','Latitude','Longitude','Magnitude'}; missing=required-set(d.columns); assert not missing, f'Missing columns: {missing}'; assert len(d)>0, 'Dataset is empty'; print(f'Dataset validation passed: {len(d)} rows')"
-
-      - name: Check pipeline syntax
-        run: |
-          python -m compileall -q pipelines
-          echo "Pipeline syntax checks passed"
-
-      - name: Upload CI evidence
+          python -m pip install -r requirements.txt
+      - name: Run Lab 8 CI validation
+        run: python experiments/lab08_ci_validation.py
+      - name: Upload Lab 8 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: earthquake-lab8-ci-${{ github.run_number }}
-          path: |
-            data/raw/Earthquake.csv.csv
-          if-no-files-found: ignore
+          path: artifacts/lab08_ci_validation_report.json
+          if-no-files-found: warn

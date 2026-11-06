@@ -1,105 +1,130 @@
-import os
-import sys
+
+from pathlib import Path
+import json
 
 import joblib
 import mlflow
 import mlflow.sklearn
 import numpy as np
 import yaml
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+)
 
 
-def configure_mlflow(config):
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or config["mlflow"].get("tracking_uri")
-    if tracking_uri:
-        mlflow.set_tracking_uri(tracking_uri)
+def main():
+    # Load configuration
+    with open("config.yaml", "r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
 
+    processed_dir = Path(config["data"]["processed_dir"])
+    artifacts_dir = Path("artifacts")
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-def train_and_register_model():
-    print("[INFO] --- Starting MLflow Run with Model Registry ---")
+    # Load preprocessed earthquake data
+    X_train = np.load(processed_dir / "X_train_final.npy")
+    X_test = np.load(processed_dir / "X_test_final.npy")
+    y_train = np.load(processed_dir / "y_train.npy")
+    y_test = np.load(processed_dir / "y_test.npy")
 
-    with open("config.yaml", "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+    print("[INFO] Training data:", X_train.shape)
+    print("[INFO] Testing data:", X_test.shape)
 
-    configure_mlflow(config)
+    # Validate the data before training
+    if X_train.ndim != 2 or X_test.ndim != 2:
+        raise ValueError("Training and testing features must be 2D arrays.")
+
+    if X_train.shape[1] != X_test.shape[1]:
+        raise ValueError("Training and testing feature counts do not match.")
+
+    if len(X_train) != len(y_train):
+        raise ValueError("Training feature and target row counts do not match.")
+
+    if len(X_test) != len(y_test):
+        raise ValueError("Testing feature and target row counts do not match.")
+
+    # Configure MLflow
+    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
-    processed_dir = config["data"]["processed_dir"]
+    # Create a candidate regression model
+    model_config = config["model"]
 
-    try:
-        X_train = np.load(os.path.join(processed_dir, "X_train_final.npy"))
-        X_test = np.load(os.path.join(processed_dir, "X_test_final.npy"))
-        y_train = np.load(os.path.join(processed_dir, "y_train.npy"))
-        y_test = np.load(os.path.join(processed_dir, "y_test.npy"))
-    except FileNotFoundError:
-        print("[ERROR] Processed data not found. Please run 03_preprocessing_mlops.py first.")
-        return False
+    model = RandomForestRegressor(
+        n_estimators=model_config["n_estimators"],
+        max_depth=model_config["max_depth"],
+        random_state=model_config["random_state"],
+        n_jobs=-1,
+    )
 
-    model_cfg = config["model"]
+    # Train and log the candidate
+    with mlflow.start_run(
+        run_name="Earthquake_RandomForest_Candidate"
+    ) as run:
 
-    params = {
-        "n_estimators": model_cfg["n_estimators"],
-        "max_depth": model_cfg["max_depth"],
-        "random_state": model_cfg["random_state"],
-        "class_weight": model_cfg["class_weight"],
-    }
-
-    with mlflow.start_run(run_name="RandomForest") as run:
-        mlflow.log_params(params)
-        mlflow.log_param("model_family", "RandomForest")
-        mlflow.log_param("lab", "ML Pipeline")
-
-        if os.getenv("GITHUB_RUN_ID"):
-            mlflow.log_param("github_run_id", os.getenv("GITHUB_RUN_ID"))
-        if os.getenv("GITHUB_SHA"):
-            mlflow.log_param("github_commit", os.getenv("GITHUB_SHA"))
-
-        print("[INFO] Training RandomForest model...")
-        model = RandomForestClassifier(**params)
         model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
 
-        print("[INFO] Evaluating model on the held-out test set...")
-        y_pred = model.predict(X_test)
-        y_proba = model.predict_proba(X_test)[:, 1]
+        mae = float(mean_absolute_error(y_test, predictions))
+        rmse = float(np.sqrt(mean_squared_error(y_test, predictions)))
+        r2 = float(r2_score(y_test, predictions))
 
-        metrics = {
-            "accuracy": accuracy_score(y_test, y_pred),
-            "precision": precision_score(y_test, y_pred, zero_division=0),
-            "recall": recall_score(y_test, y_pred, zero_division=0),
-            "f1_score": f1_score(y_test, y_pred, zero_division=0),
-            "roc_auc": roc_auc_score(y_test, y_proba),
-        }
+        print("\n[RESULTS]")
+        print(f"MAE:  {mae:.4f}")
+        print(f"RMSE: {rmse:.4f}")
+        print(f"R2:   {r2:.4f}")
 
-        mlflow.log_metrics(metrics)
+        mlflow.log_params({
+            "model_type": "RandomForestRegressor",
+            "n_estimators": model_config["n_estimators"],
+            "max_depth": model_config["max_depth"],
+            "random_state": model_config["random_state"],
+            "target": config["data"]["target_column"],
+        })
 
-        os.makedirs("models", exist_ok=True)
-        joblib.dump(model, config["paths"]["model"])
+        mlflow.log_metrics({
+            "mae": mae,
+            "rmse": rmse,
+            "r2": r2,
+        })
 
-        preprocessor_path = config["paths"]["preprocessor"]
-        if os.path.exists(preprocessor_path):
-            mlflow.log_artifact(preprocessor_path, artifact_path="preprocessing_pipeline")
-
-        print("[INFO] Pushing model to MLflow Registry...")
+        # Trust only the specific tree type reported by skops.
+        # Use this only for the model trained locally above.
         mlflow.sklearn.log_model(
             sk_model=model,
-            name="random_forest_model",
-            registered_model_name=config["registry"]["model_name"],
+            name="earthquake_model_candidate",
+            skops_trusted_types=[
+                "sklearn.tree._tree.Tree"
+            ],
         )
 
-        print(
-            f"[SUCCESS] Accuracy={metrics['accuracy']:.4f} | "
-            f"Recall={metrics['recall']:.4f} | "
-            f"F1={metrics['f1_score']:.4f} | "
-            f"ROC-AUC={metrics['roc_auc']:.4f}"
-        )
-        print(f"[SUCCESS] Model saved to {config['paths']['model']}")
-        print(f"[SUCCESS] Model registered as '{config['registry']['model_name']}'")
-        print(f"[INFO] MLflow Run ID: {run.info.run_id}")
+        print("\n[INFO] MLflow run ID:", run.info.run_id)
 
-    return True
+    # Save the candidate separately from the Production model
+    candidate_path = artifacts_dir / "earthquake_model_candidate.pkl"
+    joblib.dump(model, candidate_path)
+
+    # Save evaluation metrics
+    metrics = {
+        "MAE": mae,
+        "RMSE": rmse,
+        "R2": r2,
+    }
+
+    metrics_path = artifacts_dir / "metrics.json"
+
+    with open(metrics_path, "w", encoding="utf-8") as file:
+        json.dump(metrics, file, indent=4)
+
+    print("\n[SUCCESS] Candidate model trained and logged.")
+    print("Candidate model:", candidate_path)
+    print("Metrics:", metrics_path)
+    print("Existing Production model was not changed.")
 
 
 if __name__ == "__main__":
-    passed = train_and_register_model()
-    sys.exit(0 if passed else 1)
+    main()

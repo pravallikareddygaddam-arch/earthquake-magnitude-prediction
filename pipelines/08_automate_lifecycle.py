@@ -3,13 +3,10 @@ import sys
 import mlflow
 from mlflow.tracking import MlflowClient
 import yaml
-
-
 def configure_mlflow(config):
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or config["mlflow"].get("tracking_uri")
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
-
 
 def automate_model_lifecycle():
     print("[INFO] Starting Automated Model Lifecycle Manager...")

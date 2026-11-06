@@ -1,0 +1,50 @@
+name: Lab 13 - Earthquake End-to-End MLOps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "api/**"
+      - "experiments/**"
+      - "pipelines/**"
+      - "src/**"
+      - "config.yaml"
+      - "Dockerfile"
+      - "requirements*.txt"
+      - "data/raw/Earthquake.csv.csv"
+      - ".github/workflows/lab13_end_to_end.yml"
+
+jobs:
+  earthquake-end-to-end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run all 13 experiments in sequence
+        run: python pipelines/run_all_13_labs.py
+
+      - name: Upload 13-lab execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earthquake-mlops-13-lab-evidence-${{ github.run_number }}
+          path: |
+            artifacts/*.json
+            artifacts/*.csv
+            outputs/*.csv
+            logs/*.json
+          if-no-files-found: warn

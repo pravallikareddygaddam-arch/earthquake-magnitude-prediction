@@ -1,0 +1,9 @@
+.venv
+.venv-*
+__pycache__
+.git
+mlruns
+mlflow.db
+data
+notebooks
+*.ipynb

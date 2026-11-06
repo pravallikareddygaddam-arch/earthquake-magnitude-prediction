@@ -1,4 +1,22 @@
+
+data:
+  raw_path: "data/raw/Earthquake.csv.csv"
+  processed_dir: "data/processed"
+  target_column: "Magnitude"
+  id_column: "ID"
+
+split:
+  test_size: 0.2
+  random_state: 42
+
+model:
+  n_estimators: 100
+  max_depth: 20
+  random_state: 42
+
 paths:
+  model: "models/earthquake_model.pkl"
+  preprocessor: "models/preprocessor.pkl"
   evaluation_report: "artifacts/metrics.json"
   quality_gate_report: "artifacts/quality_gate_report.json"
 
@@ -8,6 +26,7 @@ quality_gate:
 
 mlflow:
   tracking_uri: "sqlite:///mlflow.db"
+  experiment_name: "Earthquake_Magnitude_Prediction"
 
 registry:
   model_name: "Earthquake_Magnitude_Production_Model"
